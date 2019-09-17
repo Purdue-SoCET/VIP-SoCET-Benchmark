@@ -19,22 +19,22 @@ def build_model(scale, num_classes):
 
     model = Sequential()
     # add Convolutional layers
-    model.add(Conv2D(filters=scale, kernel_size=(3,3), activation='sigmoid', padding='same', input_shape=(image_height, image_width, num_channels)))
+    model.add(Conv2D(filters=scale, kernel_size=(3,3), activation='hard_sigmoid', padding='same', input_shape=(image_height, image_width, num_channels)))
     model.add(MaxPooling2D(pool_size=(2,2)))
-    model.add(Conv2D(filters=scale*2, kernel_size=(3,3), activation='sigmoid', padding='same'))
+    model.add(Conv2D(filters=scale*2, kernel_size=(3,3), activation='hard_sigmoid', padding='same'))
     model.add(MaxPooling2D(pool_size=(2,2)))
-    model.add(Conv2D(filters=scale*2, kernel_size=(3,3), activation='sigmoid', padding='same'))
+    model.add(Conv2D(filters=scale*2, kernel_size=(3,3), activation='hard_sigmoid', padding='same'))
     model.add(MaxPooling2D(pool_size=(2,2)))
     model.add(Flatten())
     # Densely connected layers
-    model.add(Dense(scale*4, activation='sigmoid'))
+    model.add(Dense(scale*4, activation='hard_sigmoid'))
     # output layer
     model.add(Dense(num_classes, activation='softmax'))
     # compile with adam optimizer & categorical_crossentropy loss function
     model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
     return model
 
-def train_model():
+def train_model(scale, epochs, filename):
     # re-shape the images data
     train_data = np.reshape(train_digits, (train_digits.shape[0], image_height, image_width, num_channels))
     test_data = np.reshape(test_digits, (test_digits.shape[0],image_height, image_width, num_channels))
@@ -74,22 +74,22 @@ def train_model():
 
     # NOTE: We will train on train_data2/train_labels_cat2 and
     # cross-validate on val_data/val_labels_cat
-    model = build_model(16, num_classes)
+    model = build_model(scale, num_classes)
     print(model.summary())
 
     results = model.fit(train_data2, train_labels_cat2,
-                        epochs=3, batch_size=64,
+                        epochs=epochs, batch_size=64,
                         validation_data=(val_data, val_labels_cat))
 
     test_loss, test_accuracy = \
       model.evaluate(test_data, test_labels_cat, batch_size=64)
     print('Test loss: %.4f accuracy: %.4f' % (test_loss, test_accuracy))
-    model.save('sigmoid_trained.h5')
-    return model
+    model.save(filename)
+    return model, test_accuracy
 
 if __name__ == '__main__':
-    model = train_model()
-    #model = load_model('partly_trained.h5')
+    model, test_accuracy = train_model(2, 20, '8_relu.h5')
+    #model = load_model('8_sigmoid.h5')
     i = 0
     layers = []
     for layer in model.layers:
@@ -119,9 +119,11 @@ if __name__ == '__main__':
 
 
     num_bins = 10
-    n, bins, patches = plt.hist(new_layers, num_bins, facecolor='blue', alpha=0.5, edgecolor='black', linewidth=1)
+    arr = plt.hist(new_layers, num_bins, facecolor='blue', alpha=0.5, edgecolor='black', linewidth=1)
+    for i in range(num_bins):
+        plt.text(arr[1][i], arr[0][i], str(arr[0][i]))
+    plt.ylabel('Number of trainable parameters')
+    plt.xlabel('Bins')
+    title = 'Distribution of Weights/Biases, Accuracy: ' + str(test_accuracy)
+    plt.title(title)
     plt.show()
-
-
-
-
