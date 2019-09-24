@@ -1,43 +1,70 @@
 from keras.datasets.mnist import load_data
 import numpy as np
-from keras.models import Sequential, load_model
-from keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout
+from keras.models import Sequential, load_model, Model
+from keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Activation
+from keras.utils import to_categorical
+from keras.constraints import MinMaxNorm
 from pprint import pprint as pp
 import keras.backend as K
-import tensorflow
+from keras.utils.generic_utils import get_custom_objects
 import matplotlib.mlab as mlab
 import matplotlib.pyplot as plt
-
-# the train set & the other for the test set
-(train_digits, train_labels), (test_digits, test_labels) = load_data()
-image_height = train_digits.shape[1]
-image_width = train_digits.shape[2]
-num_channels = 1  # we have grayscale images
+from keras.engine.topology import Layer
 
 
-def build_model(scale, num_classes):
+NUM_CLASSES = 10
+(TRAIN_DIGITS, TRAIN_LABELS), (TEST_DIGITS, TEST_LABELS) = load_data()
+IMAGE_HEIGHT = TRAIN_DIGITS.shape[1]
+IMAGE_WIDTH = TRAIN_DIGITS.shape[2]
+NUM_CHANNELS = 1  # we have grayscale images
 
+class MyActivation(Layer):
+    def __init__(self, output_dim, **kwargs):
+        self.units = output_dim
+        self.output_dim = output_dim
+
+        super(MyActivation, self).__init__(**kwargs)
+
+    def build(self, input_shape):
+        super(MyActivation, self).build(input_shape)
+
+    def call(self, x):
+        y = 2**x / self.total
+        return y
+
+    def compute_output_shape(self, input_shape):
+        return input_shape[0], self.output_dim
+
+
+def build_model(scale):
+    min_constraint = 0
+    max_constraint = 1
+    activation_function = 'hard_sigmoid'
     model = Sequential()
     # add Convolutional layers
-    model.add(Conv2D(filters=scale, kernel_size=(3,3), activation='hard_sigmoid', padding='same', input_shape=(image_height, image_width, num_channels)))
+    # kernel_constraint=MinMaxNorm(min_value=min_constraint, max_value=max_constraint, rate=1.0)
+    # bias_constraint=MinMaxNorm(min_value=min_constraint, max_value=max_constraint, rate=1.0)
+    model.add(Conv2D(filters=scale, kernel_size=(3,3), activation=activation_function, padding='same',
+                     input_shape=(IMAGE_HEIGHT, IMAGE_WIDTH, NUM_CHANNELS)))
     model.add(MaxPooling2D(pool_size=(2,2)))
-    model.add(Conv2D(filters=scale*2, kernel_size=(3,3), activation='hard_sigmoid', padding='same'))
+    model.add(Conv2D(filters=scale*2, kernel_size=(3,3), activation=activation_function, padding='same'))
     model.add(MaxPooling2D(pool_size=(2,2)))
-    model.add(Conv2D(filters=scale*2, kernel_size=(3,3), activation='hard_sigmoid', padding='same'))
+    model.add(Conv2D(filters=scale*2, kernel_size=(3,3), activation=activation_function, padding='same'))
     model.add(MaxPooling2D(pool_size=(2,2)))
     model.add(Flatten())
     # Densely connected layers
-    model.add(Dense(scale*4, activation='hard_sigmoid'))
+    model.add(Dense(scale*4, activation=activation_function))
     # output layer
-    model.add(Dense(num_classes, activation='softmax'))
+    model.add(Dense(NUM_CLASSES, activation='softmax'))
     # compile with adam optimizer & categorical_crossentropy loss function
     model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
     return model
 
+
 def train_model(scale, epochs, filename):
     # re-shape the images data
-    train_data = np.reshape(train_digits, (train_digits.shape[0], image_height, image_width, num_channels))
-    test_data = np.reshape(test_digits, (test_digits.shape[0],image_height, image_width, num_channels))
+    train_data = np.reshape(TRAIN_DIGITS, (TRAIN_DIGITS.shape[0], IMAGE_HEIGHT, IMAGE_WIDTH, NUM_CHANNELS))
+    test_data = np.reshape(TEST_DIGITS, (TEST_DIGITS.shape[0], IMAGE_HEIGHT, IMAGE_WIDTH, NUM_CHANNELS))
 
     # re-scale the image data to values between (0.0,1.0]
     train_data = train_data.astype('float32') / 255.
@@ -45,12 +72,9 @@ def train_model(scale, epochs, filename):
 
     # one-hot encode the labels - we have 10 output classes
     # so 3 -> [0 0 0 1 0 0 0 0 0 0], 5 -> [0 0 0 0 0 1 0 0 0 0] & so on
-    from keras.utils import to_categorical
-    num_classes = 10
-    train_labels_cat = to_categorical(train_labels,num_classes)
-    test_labels_cat = to_categorical(test_labels,num_classes)
-    #train_labels_cat.shape, test_labels_cat.shape
-
+    
+    train_labels_cat = to_categorical(TRAIN_LABELS, NUM_CLASSES)
+    test_labels_cat = to_categorical(TEST_LABELS, NUM_CLASSES)
 
     # shuffle the training dataset (5 times!)
     for _ in range(5):
@@ -65,16 +89,16 @@ def train_model(scale, epochs, filename):
     val_count = int(val_perc * len(train_data))
 
     # first pick validation set from train_data/labels
-    val_data = train_data[:val_count,:]
-    val_labels_cat = train_labels_cat[:val_count,:]
+    val_data = train_data[:val_count, :]
+    val_labels_cat = train_labels_cat[:val_count, :]
 
     # leave rest in training set
-    train_data2 = train_data[val_count:,:]
-    train_labels_cat2 = train_labels_cat[val_count:,:]
+    train_data2 = train_data[val_count:, :]
+    train_labels_cat2 = train_labels_cat[val_count:, :]
 
     # NOTE: We will train on train_data2/train_labels_cat2 and
     # cross-validate on val_data/val_labels_cat
-    model = build_model(scale, num_classes)
+    model = build_model(scale)
     print(model.summary())
 
     results = model.fit(train_data2, train_labels_cat2,
@@ -87,10 +111,36 @@ def train_model(scale, epochs, filename):
     model.save(filename)
     return model, test_accuracy
 
+def get_hidden_layer(model, layer, data):
+    intermediate_layer_model = Model(inputs=model.input,
+                                     outputs=model.layers[layer].output)
+    intermediate_output = intermediate_layer_model.predict(data)
+    return intermediate_output
+
 if __name__ == '__main__':
-    model, test_accuracy = train_model(2, 20, '8_relu.h5')
-    #model = load_model('8_sigmoid.h5')
-    i = 0
+    model, test_accuracy = train_model(8, 2, 'latest.h5')  # Comment out either line 96 or 97
+    #model = load_model('latest.h5')                          # To retrain model comment 97 to load a model comment 96
+    print(model.summary())
+    intermediate_layer_outputs = []
+    data = TEST_DIGITS[0:1]
+    data = data[..., np.newaxis]
+
+    for index, layer in enumerate(model.layers):
+        output = 'working on intermediate layer: ' + str(index)
+        print(output)
+        intermediate_output = get_hidden_layer(model, index, data)
+        pp(intermediate_output.shape)
+        pp(intermediate_output)
+        intermediate_output = intermediate_output.flatten()
+        #intermediate_output = ((intermediate_output + 1) * 255) / 2
+        #intermediate_output = intermediate_output.round()
+        #intermediate_output = intermediate_output.astype('uint8')
+        intermediate_layer_outputs.append(intermediate_output)
+
+    flat_intermediate_layer_outputs = []
+    for layer in intermediate_layer_outputs:
+        flat_intermediate_layer_outputs = np.hstack([flat_intermediate_layer_outputs, layer])
+
     layers = []
     for layer in model.layers:
         w8s = []
@@ -98,13 +148,15 @@ if __name__ == '__main__':
         weights = layer.get_weights()  # list of numpy arrays
         if weights is not None:
             if len(weights) >= 1:
-                w8s = ((weights[0] + 1) * 255) / 2
-                w8s = w8s.round()
-                w8s = w8s.astype('uint8')
+                w8s = weights[0]
+                #w8s = ((weights[0] + 1) * 255) / 2
+                #w8s = w8s.round()
+                #w8s = w8s.astype('uint8')
             if len(weights) >= 2:
-                biases = ((weights[1] + 1) * 255) / 2
-                biases = biases.round()
-                biases = biases.astype('uint8')
+                biases = weights[1]
+                #biases = ((weights[1] + 1) * 255) / 2
+                #biases = biases.round()
+                #biases = biases.astype('uint8')
             new_layer = [w8s, biases]
             layers.append(new_layer)
 
@@ -117,13 +169,11 @@ if __name__ == '__main__':
             biases = biases.flatten()
             new_layers = np.hstack([new_layers, weights, biases])
 
-
+    #new_layers = np.hstack([flat_intermediate_layer_outputs, new_layers])
     num_bins = 10
-    arr = plt.hist(new_layers, num_bins, facecolor='blue', alpha=0.5, edgecolor='black', linewidth=1)
-    for i in range(num_bins):
-        plt.text(arr[1][i], arr[0][i], str(arr[0][i]))
-    plt.ylabel('Number of trainable parameters')
+    plt.hist(flat_intermediate_layer_outputs, num_bins, facecolor='blue', alpha=0.5, edgecolor='black', linewidth=1)
+    plt.title('Distribution of Weights/Biases of CNN')
     plt.xlabel('Bins')
-    title = 'Distribution of Weights/Biases, Accuracy: ' + str(test_accuracy)
-    plt.title(title)
+    plt.ylabel('Number of Weights/Biases per Bin')
     plt.show()
+
