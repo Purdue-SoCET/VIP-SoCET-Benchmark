@@ -18,23 +18,6 @@ IMAGE_HEIGHT = TRAIN_DIGITS.shape[1]
 IMAGE_WIDTH = TRAIN_DIGITS.shape[2]
 NUM_CHANNELS = 1  # we have grayscale images
 
-class MyActivation(Layer):
-    def __init__(self, output_dim, **kwargs):
-        self.units = output_dim
-        self.output_dim = output_dim
-
-        super(MyActivation, self).__init__(**kwargs)
-
-    def build(self, input_shape):
-        super(MyActivation, self).build(input_shape)
-
-    def call(self, x):
-        y = 2**x / self.total
-        return y
-
-    def compute_output_shape(self, input_shape):
-        return input_shape[0], self.output_dim
-
 
 def build_model(scale):
     min_constraint = 0
@@ -118,8 +101,8 @@ def get_hidden_layer(model, layer, data):
     return intermediate_output
 
 if __name__ == '__main__':
-    model, test_accuracy = train_model(8, 2, 'latest.h5')  # Comment out either line 96 or 97
-    #model = load_model('latest.h5')                          # To retrain model comment 97 to load a model comment 96
+    #model, test_accuracy = train_model(8 , 20, 'latest.h5')  # Comment out either line 96 or 97
+    model = load_model('lastest.h5')                          # To retrain model comment 97 to load a model comment 96
     print(model.summary())
     intermediate_layer_outputs = []
     data = TEST_DIGITS[0:1]
