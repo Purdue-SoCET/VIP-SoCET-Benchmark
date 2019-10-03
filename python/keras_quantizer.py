@@ -9,12 +9,15 @@ import h5py
 import numpy as np
 import uuid
 import model_pb2
+import warnings
 
 
 """
 adated from:
 https://github.com/transcranial/keras-js/blob/master/python/encoder.py
 """
+
+IMG_DIM = 28
 
 
 def quantize_arr(arr, dtype=np.uint8):
@@ -30,7 +33,7 @@ def quantize_arr(arr, dtype=np.uint8):
         clamped_arr = np.clip(transformed_arr, 0, 255)
         quantized = clamped_arr.astype(np.uint8)
     elif dtype == np.uint32:
-        clamped_arr = np.clip(transformed_arr, -2147483647, 2147483647)
+        clamped_arr = np.clip(transformed_arr, 0, 2 ** 31)
         quantized = clamped_arr.astype(np.uint32)
     else:
         raise ValueError('dtype={} is not supported'.format(dtype))
@@ -40,6 +43,10 @@ def quantize_arr(arr, dtype=np.uint8):
     max_val = max_val.astype(np.float32)
 
     return quantized, min_val, max_val
+
+
+def dequantize_arr(arr, scale, zero_point):
+    return scale * (arr - zero_point)
 
 
 def choose_quant_params(min, max, dtype=np.uint8):
@@ -55,9 +62,9 @@ def choose_quant_params(min, max, dtype=np.uint8):
     if dtype == np.uint8:
         qmin = 0.0
         qmax = 255.0
-    elif dtype == np.int32:
-        qmin = -2147483647.0
-        qmax = 2147483647.0
+    elif dtype == np.uint32:
+        qmin = 0.0
+        qmax = 2 ** 31 * 1.0
     else:
         raise ValueError('dtype={} is not supported'.format(dtype))
 
@@ -79,13 +86,25 @@ def choose_quant_params(min, max, dtype=np.uint8):
     # padding).
 
     if initial_zero_point < qmin:
-        nudged_zero_point = np.uint8(qmin)
+        nudged_zero_point = dtype(qmin)
     elif initial_zero_point > qmax:
-        nudged_zero_point = np.uint8(qmax)
+        nudged_zero_point = dtype(qmax)
     else:
-        nudged_zero_point = np.uint8(round(initial_zero_point))
+        nudged_zero_point = dtype(round(initial_zero_point))
 
     return scale, nudged_zero_point
+
+
+def quantize_mult_smaller_one(real_mul):
+    s = 0
+    while real_mul < 0.5:
+        real_mul *= 2
+        s += 1
+    q = np.int64(round(real_mul * (1 << 31)))
+    if q == (1 << 31):
+        q /= 2
+        s -= 1
+    return s, np.int32(q)
 
 
 class KerasQuantizer:
@@ -98,12 +117,22 @@ class KerasQuantizer:
     See https://keras.io/getting-started/faq/#savingloading-whole-models-architecture-weights-optimizer-state
     """
 
-    def __init__(self, hdf5_model_filepath):
+    def __init__(self, hdf5_model_filepath, quant_params):
         if not hdf5_model_filepath:
             raise Exception('hdf5_model_filepath must be provided.')
+        if not quant_params:
+            raise Exception('quant_params must be provided.')
         self.hdf5_model_filepath = hdf5_model_filepath
         self.layers = {}
-
+        """
+        conv_layer_weights = layers[b'conv2d'][b'conv2d/kernel:0']
+        conv_layer_biases = layers[b'conv2d'][b'conv2d/bias:0']
+        dense_layer_weights = layers[b'dense'][b'dense/kernel:0']
+        dense_layer_biases = layers[b'dense'][b'dense/bias:0']
+        pred_layer_weights = layers[b'pred'][b'pred/kernel:0']
+        pred_layer_biases = layers[b'pred'][b'pred/bias:0']
+        """
+        self.quant_params = []#quant_params
         self.create_model()
         self.quantize()
 
@@ -135,9 +164,50 @@ class KerasQuantizer:
             for weight_name in g.attrs['weight_names']:
                 weight_value = g[weight_name].value
                 if b'/bias:0' in weight_name:
-                    quant_type = np.int32
+                    quant_type = np.uint32
                 else:
                     quant_type = np.uint8
                 quantized, min_val, max_val = quantize_arr(weight_value, dtype=quant_type)
                 self.layers[layer_name][weight_name] = quantized.astype(quant_type)
         hdf5_file.close()
+
+    def do_final_pred(self, layer_input, act_params):
+        layer_input = layer_input[0]
+        pred_layer_weights = self.layers[b'pred'][b'pred/kernel:0']
+        pred_layer_biases = self.layers[b'pred'][b'pred/bias:0']
+        input_scale = act_params[2][0]
+        input_offset = act_params[2][1]
+        output_scale = act_params[3][0]
+        output_offset = act_params[3][1]
+        weight_scale = self.quant_params[4][0]
+        weight_offset = self.quant_params[4][1]
+        bias_scale = self.quant_params[5][0]
+        bias_offset = self.quant_params[5][1]
+        M = (input_scale * weight_scale) / output_scale
+        right_shift, M_0 = quantize_mult_smaller_one(M)
+
+        # int only attempt
+        # output_arr = np.zeros(shape=(10,), dtype=np.uint8)
+        # for i in range(10):
+        #     acc = np.int32(0)
+        #     for j in range(256):
+        #         input_val = np.int32(layer_input[j])
+        #         weight_val = np.int32(pred_layer_weights[j][i])
+        #         acc += (input_val - input_offset) * (weight_val - weight_offset)
+        #     acc += pred_layer_biases[i]
+        #     acc = (M_0 >> right_shift) * acc
+        #     acc += output_offset
+        #     acc = np.max([acc, 0])
+        #     acc = np.min([acc, 255])
+        #     output_arr[i] = np.uint8(acc)
+
+        # using floats
+        output_arr = np.zeros(shape=(10,), dtype=np.float32)
+        for i in range(10):
+            for j in range(256):
+                r1_aprox = input_scale * (layer_input[j] - input_offset)
+                r2_aprox = weight_scale * (pred_layer_weights[j][i] - weight_offset)
+                output_arr[i] += r1_aprox * r2_aprox
+            output_arr[i] += bias_scale * (pred_layer_biases[i] - bias_offset)
+
+        return output_arr

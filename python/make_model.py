@@ -4,13 +4,16 @@ from tensorflow.keras.datasets import mnist
 from tensorflow.keras.utils import to_categorical
 from tensorflow.keras.models import Sequential, Model, load_model
 from tensorflow.keras.layers import Dense, Activation, Conv2D, Flatten
-from encoder import choose_quant_params, Encoder
-import random
+from keras_quantizer import choose_quant_params, KerasQuantizer, quantize_arr
 
 
 def get_hidden_layer(model, layer, data):
     """
-    Loads MNIST data
+    Gets hidden layer output from model
+    Example:
+        data = TEST_DIGITS[0:1]
+        for index, layer in enumerate(model.layers):
+            intermediate_output = get_hidden_layer(model, index, data)
     """
     intermediate_layer_model = Model(inputs=model.input,
                                      outputs=model.layers[layer].output)
@@ -18,7 +21,7 @@ def get_hidden_layer(model, layer, data):
     return intermediate_output
 
 
-def get_scale_zero_points(arr):
+def _get_scale_zero_points(arr):
     min, max = np.min(arr), np.max(arr)
     scale, zero_points = choose_quant_params(min, max)
     return scale, zero_points
@@ -105,8 +108,22 @@ x_train, x_test, y_train, y_test = load_mnist()
 
 model, quant_params = train_load_model('lastest.h5', train=True)
 
-for layer in quant_params:
-    for weight_act in layer:
-        weight_act[0], weight_act[1] = choose_quant_params(weight_act[0], weight_act[1])
+data = x_test[0:1]
+quantized_act = []
+quantized_params = []
 
+for index, layer in enumerate(model.layers):
+    intermediate_output = get_hidden_layer(model, index, data)
+    quantized, min_val, max_val = quantize_arr(intermediate_output)
+    scale, offset = choose_quant_params(min_val, max_val)
+    quantized_act.append(quantized)
+    quantized_params.append((scale, offset))
 
+quant_model = KerasQuantizer('lastest.h5', quant_params)
+output_act = quant_model.do_final_pred(quantized_act[2], quantized_params)
+pass
+#answer = quant_model.infer(x_test[0])
+#print(answer[0])
+#for layer in quant_params:
+#    for weight_act in layer:
+#        weight_act[0], weight_act[1] = choose_quant_params(weight_act[0], weight_act[1])
