@@ -4,6 +4,7 @@ from tensorflow import keras
 import numpy as np
 import matplotlib.pyplot as plt
 from keras_quantizer import quantize_mult_smaller_one
+from pprint import pprint as pp
 
 """
 https://colab.research.google.com/gist/ohtaman/c1cf119c463fd94b0da50feea320ba1e/edgetpu-with-keras.ipynb#scrollTo=jWp9_I06ZjDo
@@ -13,6 +14,7 @@ print(tf.__version__)
 
 fashion_mnist = keras.datasets.fashion_mnist
 (train_images, train_labels), (test_images, test_labels) = fashion_mnist.load_data()
+print(test_labels[0])
 
 train_images = train_images / 255.0
 test_images = test_images / 255.0
@@ -231,8 +233,8 @@ for i in range(128):
     acc = np.min([acc, np.int32(255)])
     output_full_conn_arr[0][i] = np.uint8(acc)
 
-print(output_full_conn_arr)
-print(quantized_correct_output)
+pp(output_full_conn_arr)
+pp(quantized_correct_output)
 
 
 # second fully connected layer
