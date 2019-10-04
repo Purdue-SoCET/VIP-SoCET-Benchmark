@@ -229,7 +229,7 @@ for i in range(128):
     acc += output_offset  # activation offset
     acc = np.max([acc, np.int32(0)])
     acc = np.min([acc, np.int32(255)])
-    output_full_conn_arr[0][i] = acc
+    output_full_conn_arr[0][i] = np.uint8(acc)
 
 print(output_full_conn_arr)
 print(quantized_correct_output)

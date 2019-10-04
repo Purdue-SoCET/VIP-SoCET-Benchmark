@@ -20,10 +20,13 @@ https://github.com/transcranial/keras-js/blob/master/python/encoder.py
 IMG_DIM = 28
 
 
-def quantize_arr(arr, dtype=np.uint8):
+def quantize_arr(arr, min_val=None, max_val=None, dtype=np.uint8):
     """Quantization based on real_value = scale * (quantized_value - zero_point).
     """
-    min_val, max_val = np.min(arr), np.max(arr)
+
+    if (min_val is None) | (max_val is None):
+        min_val, max_val = np.min(arr), np.max(arr)
+
 
     scale, zero_point = choose_quant_params(min_val, max_val, dtype=dtype)
 
@@ -132,7 +135,7 @@ class KerasQuantizer:
         pred_layer_weights = layers[b'pred'][b'pred/kernel:0']
         pred_layer_biases = layers[b'pred'][b'pred/bias:0']
         """
-        self.quant_params = []#quant_params
+        self.quant_params = quant_params
         self.create_model()
         self.quantize()
 
@@ -165,10 +168,13 @@ class KerasQuantizer:
                 weight_value = g[weight_name].value
                 if b'/bias:0' in weight_name:
                     quant_type = np.uint32
+                    quantized, min_val, max_val = quantize_arr(weight_value, dtype=quant_type)
+                    self.layers[layer_name][weight_name] = quantized.astype(quant_type)
                 else:
                     quant_type = np.uint8
-                quantized, min_val, max_val = quantize_arr(weight_value, dtype=quant_type)
-                self.layers[layer_name][weight_name] = quantized.astype(quant_type)
+                    quantized, min_val, max_val = quantize_arr(weight_value, dtype=quant_type)
+                    self.layers[layer_name][weight_name] = quantized.astype(quant_type)
+
         hdf5_file.close()
 
     def do_final_pred(self, layer_input, act_params):
@@ -179,10 +185,12 @@ class KerasQuantizer:
         input_offset = act_params[2][1]
         output_scale = act_params[3][0]
         output_offset = act_params[3][1]
-        weight_scale = self.quant_params[4][0]
-        weight_offset = self.quant_params[4][1]
-        bias_scale = self.quant_params[5][0]
-        bias_offset = self.quant_params[5][1]
+        weight_min = self.quant_params[2][0][0]
+        weight_max = self.quant_params[2][0][1]
+        weight_scale, weight_offset = choose_quant_params(weight_min, weight_max)
+        bias_min = self.quant_params[5][0]
+        bias_max = self.quant_params[5][1]
+        bias_scale, bias_offset = choose_quant_params(bias_min, bias_max)
         M = (input_scale * weight_scale) / output_scale
         right_shift, M_0 = quantize_mult_smaller_one(M)
 
