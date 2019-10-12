@@ -110,6 +110,18 @@ def quantize_mult_smaller_one(real_mul):
     return s, np.int32(q)
 
 
+def quantize_mult_greater_one(real_mul):
+    s = 0
+    while real_mul >= 1.0:
+        real_mul /= 2
+        s += 1
+    q = np.int64(round(real_mul * (1 << 31)))
+    if q == (1 << 31):
+        q /= 2
+        s += 1
+    return s, np.int32(q)
+
+
 class KerasQuantizer:
     """Encoder class.
     Takes as input a Keras model saved in hdf5 format that includes the model architecture with the weights.

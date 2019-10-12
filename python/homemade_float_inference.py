@@ -78,6 +78,7 @@ def evaluate_conv_layer(input, weights, biases):
                 kernel_img = input[j:j + 3, k:k + 3]
                 kernel_weight = weights[:, :, 0, i]
                 result = np.sum(np.dot(kernel_img, kernel_weight)) + biases[i]
+
                 output[i][j + 1][k + 1] = activation_func(result)
     return output
 
