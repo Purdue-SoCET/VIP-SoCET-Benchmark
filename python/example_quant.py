@@ -88,18 +88,6 @@ flat_test = np.asarray(flat_test)
 #     with open('frozen_model.pb', 'wb') as f:
 #         f.write(frozen_graph_def.SerializeToString())
 #
-# load TFLite file
-interpreter = tf.lite.Interpreter(model_path=f'model.tflite')
-# Allocate memory.
-interpreter.allocate_tensors()
-
-# get some informations .
-input_details = interpreter.get_input_details()
-output_details = interpreter.get_output_details()
-inter_layer = interpreter.get_tensor_details()
-
-print(input_details)
-print(output_details)
 
 
 def quantize(detail, data):
@@ -216,19 +204,139 @@ inline IntegerType RoundingDivideByPOT(IntegerType x, ExponentType exponent) {
 }
 """
 
-def exp_on_interval_between_negative_one_quarter_and_0_excl(x):
-    # x between [-1/4, 0)
-    # shift to [-1/8, 1/8)
-    # floating point representation:
-    # bit index range: function
-    # 31: sign 30-26: whole number 25-0: float
-    # i.e. decimal place between bits 25 and 26 (starting at index 0)
+def SaturatingRoundingMultiplyByPOT(x, exponent):
+    return RoundDividByPOT(x, -exponent)
 
-    # Taylor Series Expansion
-    x = x + (1 << 23)
-    x_2 = x * x
+def SaturatingAdd(a, b):
+    a32 = np.int32(a)
+    b32 = np.int32(b)
+    sum = np.int64(a32 + b32)
+    sum = np.max([-32768, sum])
+    sum = np.min([32767, sum])
+    return np.int16(sum)
+
+def exp_on_interval_between_negative_one_quarter_and_0_excl(x, num_int_bits):
+    if x < float_to_q(-0.25, 5):
+        raise ValueError('Must be > -0.25')
+    elif x > 0:
+        raise ValueError('Must be < 0')
+    mask = (1 << (32 - num_int_bits - 1)) - 1
+    mask_shift = np.int32((x & mask) << num_int_bits)
+    rescaled_x = np.int32(mask_shift | (1 << 31))
+    scaled_x = np.int32(rescaled_x + (1 << 28))
+    x2 = SaturatingRoundingDoublingHighMul(scaled_x, scaled_x)
+    x3 = SaturatingRoundingDoublingHighMul(x2, scaled_x)
+    x4 = SaturatingRoundingDoublingHighMul(x2, x2)
+    x4_over_4 = SaturatingRoundingMultiplyByPOT(x4, -2)
+    constant_1_over_3 = float_to_q(1/3, 0)
+    constant_term = float_to_q(np.exp(-1.0 / 8.0), 0)
+    x4_over_24_plus_x3_over_6_plus_x2_over_2 = SaturatingRoundingMultiplyByPOT(SaturatingRoundingDoublingHighMul(x4_over_4 + x3, constant_1_over_3) + x2, -1)
+    x4_over_24_plus_x3_over_6_plus_x2_over_2_mul_constant_term = SaturatingRoundingDoublingHighMul(constant_term, x4_over_24_plus_x3_over_6_plus_x2_over_2)
+    result = SaturatingAdd(constant_term, x4_over_24_plus_x3_over_6_plus_x2_over_2_mul_constant_term)
+
+    if result < 0:
+        raise ValueError('Negative Output')
+    return result
 
 
+def change_to_float(int_val, num_int_bits):
+    n = 32 - num_int_bits - 1
+    return int_val * (2 ** -n)
+
+
+def float_to_q(float_val, num_int_bits):
+    n = 32 - num_int_bits - 1
+    return np.int32(round(float_val * (2 ** n)))
+
+
+def CountLeadingZeros(x):
+    count = 0
+    for i in range(32):
+        if (x >> (31 - i)) == 0:  # ignore sign? i think so
+            count += 1
+        else:
+            break
+    return count
+
+
+def RoundingHalfSum(a, b):
+    a64 = np.int64(a)
+    b64 = np.int64(b)
+    sum = a64 + b64
+    if sum >= 0:
+        sign = 1
+    else:
+        sign = -1
+    return np.int32((sum + sign) / 2)
+
+
+# returns 1 / (1 + x) for x (0, 1)
+def one_over_one_plus_x_for_x_in_0_1(a, num_int_bits):
+    if (change_to_float(a, num_int_bits) > 1) | (change_to_float(a, num_int_bits) < 0):
+        raise ValueError('input not between 0 and 1')
+    half_denominator = RoundingHalfSum(a, 2147483647)
+    constant_48_over_17 = float_to_q(48.0/17.0, 2)
+    constant_neg_32_over_17 = float_to_q(-32.0/17.0, 2)
+    constant_one = float_to_q(1.0, 2)
+    half_denominator_mul_constant_neg_32_over_17 = SaturatingRoundingDoublingHighMul(half_denominator, constant_neg_32_over_17)
+    x = constant_48_over_17 + half_denominator_mul_constant_neg_32_over_17
+    for i in range(3):
+        half_denominator_times_x = SaturatingRoundingDoublingHighMul(half_denominator, x)
+        one_minus_half_denominator_times_x = constant_one - half_denominator_times_x
+        x = x + SaturatingRoundingDoublingHighMul(x, one_minus_half_denominator_times_x)
+    return np.int32(x << 1)
+
+
+def exp_on_negative_values(a, num_int_bits):
+    # change to 0 bit int rep
+    mask = (1 << 24) - 1
+    one_quarter = 1 << 24
+    a_mod_quarter_minus_one_quarter = (input_diff_rescaled & mask) - one_quarter
+    result = exp_on_interval_between_negative_one_quarter_and_0_excl(a_mod_quarter_minus_one_quarter, 5)
+    remainder = a_mod_quarter_minus_one_quarter - a
+    result = SelectUsingMask(MaskIfZero(a), (1 << 31) - 1, result)
+    return result
+    # constant_one = 2147483647
+    # constant_half = float_to_q(0.5, num_int_bits)
+    # constant_1_over_6 = float_to_q(1 / 6, num_int_bits)
+    # constant_1_over_24 = float_to_q(1 / 24, num_int_bits)
+    # one_plus_x = constant_one + x
+    # x2 = FixedPointMul(x, x, num_int_bits)
+    # x2_over_2 = FixedPointMul(x2, constant_half, num_int_bits)
+    # x3 = FixedPointMul(x2, x, num_int_bits)
+    # x3_over_6 = FixedPointMul(x3, constant_1_over_6, num_int_bits)
+    # x4 = FixedPointMul(x2, x2, num_int_bits)
+    # x4_over_24 = FixedPointMul(x4, constant_1_over_24, num_int_bits)
+    # return one_plus_x + x2_over_2 + x3_over_6 + x4_over_24
+
+
+def MaskIfNonZero(a):
+    if a:
+        return ~np.int32(0)
+    else:
+        return np.int32(0)
+
+
+def MaskIfZero(a):
+    return MaskIfNonZero(~a)
+
+
+def SelectUsingMask(if_mask, then_val, else_val):
+    return (if_mask & then_val) ^ ((~if_mask) & else_val)
+
+
+# load TFLite file
+interpreter = tf.lite.Interpreter(model_path=f'model.tflite')
+# Allocate memory.
+interpreter.allocate_tensors()
+
+# get some informations .
+input_details = interpreter.get_input_details()
+output_details = interpreter.get_output_details()
+inter_layer = interpreter.get_tensor_details()
+
+print(input_details)
+print(output_details)
 
 quantized_input = quantize(input_details[0], flat_test[:1])
 interpreter.set_tensor(input_details[0]['index'], quantized_input)
@@ -273,6 +381,7 @@ for i in range(10):
 
 pp(output_full_conn_arr)
 pp(quantized_correct_output)
+pp(dequantize(inter_layer[0], quantized_correct_output))
 
 output_full_conn_arr_2 = np.zeros(shape=(1, 10), dtype=np.uint8)
 input_scale, input_offset = inter_layer[0]['quantization']
@@ -281,23 +390,49 @@ M = input_scale / output_scale
 left_shift, M_0 = quantize_mult_greater_one(M)
 quantized_correct_output = interpreter.get_tensor(inter_layer[2]['index'])
 max_in_row = max(output_full_conn_arr[0])
-diff_min = -255
+diff_min = -25
+
+# input_scale_fixed_point = float_to_q(input_scale, 0)
+# scaled_val = np.int32(output_full_conn_arr[0][8]) - input_offset
+# float_input_val = (np.int64(input_scale_fixed_point) * scaled_val) >> 12
 
 sum_of_exps = 0
 temp_arr = []
 # Sum of Exps
 for i in range(10):
     input_val = np.int32(output_full_conn_arr[0][i])
+    input_diff = input_val - max_in_row
+    if input_diff >= -32:
+        input_diff_rescaled = MultiplyByQuantizedMultiplierGreaterThanOne(input_diff, M_0, left_shift)
+        result = exp_on_negative_values(input_diff_rescaled, 5)
+        mask = (1 << (32 - 0 - 1)) - 1
+        mask_shift = np.int32((result & mask) >> 12)
+        rescaled_x = np.int32(mask_shift | (0 << 31))  # stay pos
+        sum_of_exps += rescaled_x
+
+
+# # sum_of_exps = float_to_q(1.25, 12)
+headroom_plus_one = CountLeadingZeros(np.uint32(sum_of_exps))
+num_bits_over_unit = 12 - headroom_plus_one
+shifted_sum_minus_one = np.int32((np.uint32(sum_of_exps) << headroom_plus_one) - (np.uint32(1) << 31))
+shifted_scale = one_over_one_plus_x_for_x_in_0_1(shifted_sum_minus_one, 0)
+#
+for i in range(10):
+    input_val = np.int32(output_full_conn_arr[0][i])
     input_diff = np.int32(input_val - max_in_row)
-    input_diff_rescaled = MultiplyByQuantizedMultiplierGreaterThanOne(input_diff, M_0, left_shift)
+    if input_diff >= -32:
+        input_diff_rescaled = MultiplyByQuantizedMultiplierGreaterThanOne(input_diff, M_0, left_shift)
+        result = exp_on_negative_values(input_diff_rescaled, 5)
+        scaled_result = SaturatingRoundingDoublingHighMul(shifted_scale, result)
+        unsat_output = RoundDividByPOT(scaled_result, num_bits_over_unit + 31 - 8)
+        unsat_output = np.min([unsat_output, np.int32(255)])
+        unsat_output = np.max([unsat_output, np.int32(0)])
+        output_full_conn_arr_2[0][i] = np.uint8(unsat_output)
+    else:
+        output_full_conn_arr_2[0][i] = np.uint8(0)
 
-    temp_arr.append(input_diff_rescaled)
-
-pass
-    # if input_diff >= diff_min:
-    #     input_diff_rescaled = MultiplyByQuantizedMultiplierGreaterThanOne(input_diff, M_0, left_shift)
-    #     scaled_diff_f8 = FixedPointScaledDiff_Raw(input_diff_rescaled)
-    #     sum_of_exps += Rescale(exp_on_negative_vales(scaled_diff_f8))
+pp(output_full_conn_arr_2)
+pp(quantized_correct_output)
 
 # fixed_sum_of_exps = FixedPointAcc_Raw(sum_of_exps)
 # headroom_plus_one = CountLeadingZeros(fixed_sum_of_exps)
