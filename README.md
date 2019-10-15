@@ -15,6 +15,7 @@ integer_inference.py:
 code containing homemade integer only inferencing, adapted from:
 https://github.com/tensorflow/tensorflow/tree/master/tensorflow/lite/kernels/internal/reference
 see conv.h, fully_connected.h, common.h
+
 https://github.com/google/gemmlowp/
 see fixedpoint/fixed_point.h
 
