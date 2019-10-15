@@ -1,7 +1,11 @@
 # VIP-SoCET-Benchmark
 
-Python
+# Quick start guide:
+clone repository
 
+execute run_homemade_int_inference.py
+
+# File Descriptions
 
 Look at Some MNIST.py:
 
