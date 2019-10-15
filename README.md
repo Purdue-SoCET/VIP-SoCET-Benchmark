@@ -1,5 +1,12 @@
 # VIP-SoCET-Benchmark
 
+# Results
+After running 100 test images:
+
+My implementation accuracy: 95%
+
+Tensorflow accuracy: 97%
+
 # References
 https://github.com/google/gemmlowp
 
