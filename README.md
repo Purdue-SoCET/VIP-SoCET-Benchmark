@@ -1,6 +1,11 @@
 # VIP-SoCET-Benchmark
 
 # References
+https://github.com/google/gemmlowp
+
+https://github.com/tensorflow/tensorflow/tree/master/tensorflow/lite
+
+https://arxiv.org/abs/1712.05877
 
 
 # Quick start guide
