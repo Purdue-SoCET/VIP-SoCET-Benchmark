@@ -1,5 +1,8 @@
 # VIP-SoCET-Benchmark
 
+# Description
+Purdue University Senior Design with VIP SoCET team. Tasked with creating a ML model for measuring efficiency of hardware optimizations done to a RISC-V processor.
+
 # Results
 After running 100 test images:
 
