@@ -1,4 +1,8 @@
-from keras.datasets.mnist import load_data
+"""
+Prints out a few example images from MNIST
+"""
+
+from tensorflow.keras.datasets.mnist import load_data
 import numpy as np
 from matplotlib import pyplot as plt
 

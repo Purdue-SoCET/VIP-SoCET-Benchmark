@@ -1,3 +1,8 @@
+"""
+Outdated code used when prototyping integer inferencing
+"""
+
+
 #!/usr/bin/env python
 
 from __future__ import absolute_import
