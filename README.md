@@ -4,11 +4,11 @@
 Purdue University Senior Design with VIP SoCET team. Tasked with creating a ML model for measuring efficiency of hardware optimizations done to a RISC-V processor.
 
 # Results
-After running 100 test images:
+After running MNIST test data
 
-My implementation accuracy: 95%
+My implementation accuracy: 95.57%
 
-Tensorflow accuracy: 97%
+Tensorflow accuracy: 96.59%
 
 # References
 https://github.com/google/gemmlowp
