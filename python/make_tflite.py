@@ -71,7 +71,7 @@ original_predictions = []
 original_acc = 0
 with train_graph.as_default():
     print('Testing on Original')
-    for i in range(5000):
+    for i in range(9999):
         pred = train_model.predict(flat_test[i:i+1])
         if np.argmax(pred) == test_labels[i]:
             original_acc += 1
@@ -112,7 +112,7 @@ converter.representative_dataset = representative_dataset_gen
 converter.inference_type = tf.lite.constants.QUANTIZED_UINT8
 input_arrays = converter.get_input_arrays()
 converter.quantized_input_stats = {input_arrays[0] : (0., 255)}  # mean, std_dev
-converter.default_ranges_stats = (0, +100)
+converter.default_ranges_stats = (0, 50)
 tflite_model = converter.convert()
 open('model.tflite', 'wb').write(tflite_model)
 
@@ -122,7 +122,7 @@ interpreter.allocate_tensors()
 quant_acc = 0
 
 print('Testing on Quantized')
-for i in range(5000):
+for i in range(9999):
     input_detail = interpreter.get_input_details()[0]
     output_detail = interpreter.get_output_details()[0]
 
@@ -136,5 +136,5 @@ for i in range(5000):
     if np.argmax(pred_quantized_model) == test_labels[i]:
         quant_acc += 1
 
-print('Integer Acc: ',quant_acc / 5000)
-print('Float Acc: ', original_acc / 5000)
+print('Integer Acc: ',quant_acc / 9999)
+print('Float Acc: ', original_acc / 9999)
