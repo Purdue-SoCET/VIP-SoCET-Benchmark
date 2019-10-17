@@ -1,15 +1,15 @@
-from keras.datasets.mnist import load_data
+"""
+Used to analyze sparsity in model
+"""
+
+from tensorflow.keras.datasets.mnist import load_data
 import numpy as np
-from keras.models import Sequential, load_model, Model
-from keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Activation
-from keras.utils import to_categorical
-from keras.constraints import MinMaxNorm
+from tensorflow.keras.models import Sequential, load_model, Model
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Activation
+from tensorflow.keras.utils import to_categorical
 from pprint import pprint as pp
-import keras.backend as K
-from keras.utils.generic_utils import get_custom_objects
-import matplotlib.mlab as mlab
 import matplotlib.pyplot as plt
-from keras.engine.topology import Layer
+
 
 
 NUM_CLASSES = 10
@@ -110,10 +110,10 @@ if __name__ == '__main__':
 
     for index, layer in enumerate(model.layers):
         output = 'working on intermediate layer: ' + str(index)
-        print(output)
+        # print(output)
         intermediate_output = get_hidden_layer(model, index, data)
-        pp(intermediate_output.shape)
-        pp(intermediate_output)
+        #pp(intermediate_output.shape)
+        #pp(intermediate_output)
         intermediate_output = intermediate_output.flatten()
         #intermediate_output = ((intermediate_output + 1) * 255) / 2
         #intermediate_output = intermediate_output.round()
