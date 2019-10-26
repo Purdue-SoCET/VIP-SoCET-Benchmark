@@ -141,6 +141,7 @@ def Conv(quantized_inputs, input_offset, quantized_weights, weight_offset, quant
             acc = np.max([acc, np.int32(0)])
             acc = np.min([acc, np.int32(255)])
             output_conv_arr[j][i] = np.uint8(acc)
+            #print("[%d][%d]: %d" % (j, i, output_conv_arr[j][i]))
     return output_conv_arr, num_skip_dyn, num_skip_static, total_exc
 
 
