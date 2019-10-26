@@ -91,7 +91,7 @@ def RoundingDivideByPOT(x, exponent):
 # Integer math for FullyConnected or Dense layer
 # Good to write C code for? YES
 def FullyConnected(quantized_inputs, input_offset, quantized_weights, weight_offset, quantized_bias,
-                   output_offset, M_0, right_shift, output_shape):
+                   output_offset, M_0, right_shift, output_shape, num_skip_dyn, num_skip_static, total_exc):
     output_full_conn_arr = np.zeros(shape=output_shape, dtype=np.uint8)
     rows, cols = quantized_weights.shape
     for i in range(rows):
@@ -99,6 +99,11 @@ def FullyConnected(quantized_inputs, input_offset, quantized_weights, weight_off
         for j in range(cols):
             input_val = np.int32(quantized_inputs[0][j])
             weight_val = np.int32(quantized_weights[i][j])
+            if input_val - input_offset == 0:
+                num_skip_dyn += 1
+            if weight_val - weight_offset == 0:
+                num_skip_static += 1
+            total_exc += 1
             acc += (input_val - input_offset) * (weight_val - weight_offset)
         acc += quantized_bias[i]
         acc = MultiplyByQuantizedMultiplierSmallerThanOne(acc, M_0, right_shift)
@@ -106,13 +111,13 @@ def FullyConnected(quantized_inputs, input_offset, quantized_weights, weight_off
         acc = np.max([acc, np.int32(0)])
         acc = np.min([acc, np.int32(255)])
         output_full_conn_arr[0][i] = np.uint8(acc)
-    return output_full_conn_arr
+    return output_full_conn_arr, num_skip_dyn, num_skip_static, total_exc
 
 
 # Integer math for Conv1D
 # Good to write C code for? YES
 def Conv(quantized_inputs, input_offset, quantized_weights, weight_offset, quantized_bias,
-                   output_offset, M_0, right_shift, output_shape):
+                   output_offset, M_0, right_shift, output_shape, num_skip_dyn, num_skip_static, total_exc):
     output_conv_arr = np.zeros(shape=output_shape, dtype=np.uint8)
     kernel_shape = quantized_weights.shape[2]
     rows = quantized_weights.shape[3]
@@ -124,6 +129,11 @@ def Conv(quantized_inputs, input_offset, quantized_weights, weight_offset, quant
                 for k in range(kernel_shape):
                     input_val = np.int32(quantized_inputs[0, j - 1 + k, 0])
                     weight_val = np.int32(quantized_weights[0, 0, k, i])
+                    if input_val - input_offset == 0:
+                        num_skip_dyn += 1
+                    if weight_val - weight_offset == 0:
+                        num_skip_static += 1
+                    total_exc += 1
                     acc += (input_val - input_offset) * (weight_val - weight_offset)
             acc += quantized_bias[i]
             acc = MultiplyByQuantizedMultiplierSmallerThanOne(acc, M_0, right_shift)
@@ -131,7 +141,7 @@ def Conv(quantized_inputs, input_offset, quantized_weights, weight_offset, quant
             acc = np.max([acc, np.int32(0)])
             acc = np.min([acc, np.int32(255)])
             output_conv_arr[j][i] = np.uint8(acc)
-    return output_conv_arr
+    return output_conv_arr, num_skip_dyn, num_skip_static, total_exc
 
 
 # Returns the product of a run-time integer value by a compile-time power

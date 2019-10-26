@@ -9,21 +9,37 @@ import tensorflow as tf
 from tensorflow import keras
 import numpy as np
 import offline
+from PIL import Image
+
+IMG_SIZE = (14, 14)
 
 mnist = keras.datasets.mnist
 (train_images, train_labels), (test_images, test_labels) = mnist.load_data()
 
-train_images = train_images / 255.0
-test_images = test_images / 255.0
+train_imgs_resize = []
+test_imgs_resize = []
+
+for img in train_images:
+    res = np.array(Image.fromarray(img).resize(size=IMG_SIZE))
+    train_imgs_resize.append(res)
+train_imgs_resize = np.asarray(train_imgs_resize)
+
+for img in test_images:
+    res = np.array(Image.fromarray(img).resize(size=IMG_SIZE))
+    test_imgs_resize.append(res)
+test_imgs_resize = np.asarray(test_imgs_resize)
+
+train_imgs_resize = train_imgs_resize / 255.0
+test_imgs_resize = test_imgs_resize / 255.0
 
 flat_train = []
 flat_test = []
 
-for i, img in enumerate(train_images):
+for i, img in enumerate(train_imgs_resize):
     flat_train.append(img.flatten())
 flat_train = np.asarray(flat_train)
 
-for i, img in enumerate(test_images):
+for i, img in enumerate(test_imgs_resize):
     flat_test.append(img.flatten())
 flat_test = np.asarray(flat_test)
 
@@ -33,10 +49,10 @@ flat_test = flat_test[..., np.newaxis]
 
 def build_keras_model():
     return keras.Sequential([
-        keras.layers.Conv1D(filters=16, kernel_size=3, input_shape=(784,1), padding='same', activation='relu'),
+        keras.layers.Conv1D(filters=8, kernel_size=3, input_shape=(IMG_SIZE[0] * IMG_SIZE[1], 1), padding='same', activation='relu'),
         keras.layers.Flatten(),
-        keras.layers.Dense(128, activation='relu', input_shape=(12544,)),
-        keras.layers.Dense(10, activation='softmax', input_shape=(128,))
+        keras.layers.Dense(16, activation='relu'),
+        keras.layers.Dense(10, activation='softmax')
     ])
 
 
@@ -112,7 +128,7 @@ converter.representative_dataset = representative_dataset_gen
 converter.inference_type = tf.lite.constants.QUANTIZED_UINT8
 input_arrays = converter.get_input_arrays()
 converter.quantized_input_stats = {input_arrays[0] : (0., 255)}  # mean, std_dev
-converter.default_ranges_stats = (0, 50)
+converter.default_ranges_stats = (0, 25)
 tflite_model = converter.convert()
 open('model.tflite', 'wb').write(tflite_model)
 

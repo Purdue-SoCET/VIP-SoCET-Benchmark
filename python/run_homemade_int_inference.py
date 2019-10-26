@@ -7,22 +7,37 @@ from tensorflow import keras
 import numpy as np
 import offline
 import integer_inference
+from PIL import Image
 
+IMG_SIZE = (14, 14)
 
 mnist = keras.datasets.mnist
 (train_images, train_labels), (test_images, test_labels) = mnist.load_data()
 
-train_images = train_images / 255.0
-test_images = test_images / 255.0
+train_imgs_resize = []
+test_imgs_resize = []
+
+for img in train_images:
+    res = np.array(Image.fromarray(img).resize(size=IMG_SIZE))
+    train_imgs_resize.append(res)
+train_imgs_resize = np.asarray(train_imgs_resize)
+
+for img in test_images:
+    res = np.array(Image.fromarray(img).resize(size=IMG_SIZE))
+    test_imgs_resize.append(res)
+test_imgs_resize = np.asarray(test_imgs_resize)
+
+train_imgs_resize = train_imgs_resize / 255.0
+test_imgs_resize = test_imgs_resize / 255.0
 
 flat_train = []
 flat_test = []
 
-for i, img in enumerate(train_images):
+for i, img in enumerate(train_imgs_resize):
     flat_train.append(img.flatten())
 flat_train = np.asarray(flat_train)
 
-for i, img in enumerate(test_images):
+for i, img in enumerate(test_imgs_resize):
     flat_test.append(img.flatten())
 flat_test = np.asarray(flat_test)
 
@@ -85,6 +100,9 @@ output_scale_pred, output_offset_pred = inter_layer[output_index]['quantization'
 M_pred = (input_scale_pred * weight_scale_pred) / output_scale_pred
 right_shift_pred, M_0_pred = offline.quantize_mult_smaller_one(M_pred)
 
+avg_num_skip_dyn = 0
+avg_num_skip_static = 0
+total_exc = 0
 
 for i in range(num_test_imgs):
     # set up img to be infered on...
@@ -100,24 +118,30 @@ for i in range(num_test_imgs):
     # Output with softmax
     quantized_output_softmax = interpreter.get_tensor(output_details[0]['index'])
 
+    num_skip_dyn = 0
+    num_skip_static = 0
+    total_exc = 0
     # Homemade inference time!
-    output_conv_arr = (integer_inference.Conv(quantized_input, input_offset_conv, quantized_weight_conv,
+    output_conv_arr, num_skip_dyn, num_skip_static, total_exc = (integer_inference.Conv(quantized_input, input_offset_conv, quantized_weight_conv,
                                               weight_offset_conv, quantized_bias_conv, output_offset_conv, M_0_conv,
-                                              right_shift_conv, (784, 16)))
+                                              right_shift_conv, (IMG_SIZE[0] * IMG_SIZE[1], 8), num_skip_dyn, num_skip_static, total_exc))
 
     # to do move to Conv function
     output_conv_arr = output_conv_arr.flatten()
     output_conv_arr = output_conv_arr[np.newaxis, ...]
 
-    output_full_conn_arr = (integer_inference.FullyConnected(output_conv_arr, input_offset_dense,
+    output_full_conn_arr, num_skip_dyn, num_skip_static, total_exc = (integer_inference.FullyConnected(output_conv_arr, input_offset_dense,
                                                              quantized_weight_dense, weight_offset_dense,
                                                              quantized_bias_dense, output_offset_dense, M_0_dense,
-                                                             right_shift_dense, (1, 128)))
+                                                             right_shift_dense, (1, 16), num_skip_dyn, num_skip_static, total_exc))
 
-    output_full_conn_arr_2 = (integer_inference.FullyConnected(output_full_conn_arr, input_offset_pred,
+    output_full_conn_arr_2, num_skip_dyn, num_skip_static, total_exc = (integer_inference.FullyConnected(output_full_conn_arr, input_offset_pred,
                                                                quantized_weight_pred, weight_offset_pred,
                                                                quantized_bias_pred, output_offset_pred, M_0_pred,
-                                                               right_shift_pred, (1, 10)))
+                                                               right_shift_pred, (1, 10), num_skip_dyn, num_skip_static, total_exc))
+
+    avg_num_skip_dyn += num_skip_dyn
+    avg_num_skip_static += num_skip_static
 
     if test_labels[i] == np.argmax(quantized_output_softmax):
         tensorflow_softmax_acc += 1
@@ -131,9 +155,8 @@ for i in range(num_test_imgs):
     print('Tensorflow - no softmax accuracy : ', tensorflow_no_softmax_acc / (i + 1))
     print('Homemade   - no softmax accuracy : ', homemade_acc / (i + 1), '\n')
 
-
-
 print('Final Tensorflow - softmax    accuracy :', tensorflow_softmax_acc / num_test_imgs)
 print('Final Tensorflow - no softmax accuracy :', tensorflow_no_softmax_acc / num_test_imgs)
 print('Final Homemade   - no softmax accuracy :', homemade_acc / num_test_imgs)
-
+print('% of dynamic skippable excecutions     :', (avg_num_skip_dyn / num_test_imgs) / total_exc)
+print('% of static skippable excecutions      :', (avg_num_skip_static / num_test_imgs) / total_exc)
