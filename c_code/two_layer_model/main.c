@@ -18,7 +18,7 @@ int32_t minOf(int32_t a, int32_t b);
 int32_t RoundingDivideByPOT(int32_t x, int exponent);
 int32_t SaturatingRoundingDoublingHighMul(int32_t a, int32_t b);
 int32_t MultiplyByQuantizedMultiplierSmallerThanOne(int32_t x, int32_t quant_mul, int right_shift);
-void FullyConnectedDense(uint8_t quantized_inputs[1][IMG_SIZE*N_FILTERS], uint8_t output_full_conn_dense_arr[1][N_CLASSES]);
+void FullyConnectedDense(uint8_t quantized_inputs[IMG_SIZE][N_FILTERS], uint8_t output_full_conn_dense_arr[1][N_CLASSES]);
 uint8_t argMaxPred(uint8_t quantized_input[1][N_CLASSES]);
 
 int32_t maxOf(int32_t a, int32_t b) {
@@ -94,19 +94,21 @@ void Conv(uint8_t output_conv_arr[IMG_SIZE][N_FILTERS]) {
 	}
 }
 
-void FullyConnectedDense(uint8_t quantized_inputs[1][IMG_SIZE*N_FILTERS], uint8_t output_full_conn_dense_arr[1][N_CLASSES]) {
-	int rows = N_CLASSES;
-	int cols = IMG_SIZE * N_FILTERS;
-
+void FullyConnectedDense(uint8_t quantized_inputs[IMG_SIZE][N_FILTERS], uint8_t output_full_conn_dense_arr[1][N_CLASSES]) {
 	int32_t acc;
 	int32_t input_val;
 	int32_t weight_val;
-	for (int i = 0; i < rows; i++) {
+	int weight_index;
+	for (int i = 0; i < N_CLASSES; i++) {
 		acc = 0;
-		for (int j = 0; j < cols; j++) {
-			input_val = (int32_t)(quantized_inputs[0][j]);
-			weight_val = (int32_t)(quantized_weight_dense[i][j]);
-			acc += (input_val - input_offset_dense) * (weight_val - weight_offset_dense);
+		weight_index = 0;
+		for (int j = 0; j < IMG_SIZE; j++) {
+			for (int k = 0; k < N_FILTERS; k++) {
+				input_val = (int32_t)(quantized_inputs[j][k]);
+				weight_val = (int32_t)(quantized_weight_dense[i][weight_index]);
+				acc += (input_val - input_offset_dense) * (weight_val - weight_offset_dense);
+				weight_index++;
+			}
 		}
 		acc += quantized_bias_dense[i];
 		acc = MultiplyByQuantizedMultiplierSmallerThanOne(acc, M_0_dense, right_shift_dense);
