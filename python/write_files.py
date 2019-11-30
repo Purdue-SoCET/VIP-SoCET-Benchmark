@@ -48,6 +48,10 @@ input_details = interpreter.get_input_details()
 output_details = interpreter.get_output_details()
 inter_layer = interpreter.get_tensor_details()
 
+directory = os.path.dirname("test_imgs/")
+if not os.path.exists(directory):
+    os.makedirs(directory)
+
 for i in range(10000):
     quantized_input = offline.quantize(input_details[0], flat_test[i:i+1])
     path = 'test_imgs/img_'
