@@ -1,9 +1,10 @@
 #include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 
 #include "conv.h"
 #include "dense.h"
 #include "img.h"
-#include "../../c-firmware/c_self_test.h"
 
 // Global Variables
 uint8_t IMG_SIZE  = 10 * 10;
@@ -19,7 +20,6 @@ int32_t SaturatingRoundingDoublingHighMul(int32_t a, int32_t b);
 int32_t MultiplyByQuantizedMultiplierSmallerThanOne(int32_t x, int32_t quant_mul, int right_shift);
 void FullyConnectedDense(uint8_t quantized_inputs[1][IMG_SIZE*N_FILTERS], uint8_t output_full_conn_dense_arr[1][N_CLASSES]);
 uint8_t argMaxPred(uint8_t quantized_input[1][N_CLASSES]);
-int32_t MAC(int32_t acc, int32_t x, int32_t y);
 
 int32_t maxOf(int32_t a, int32_t b) {
 	if (a > b) return a;
@@ -67,10 +67,6 @@ int32_t MultiplyByQuantizedMultiplierSmallerThanOne(int32_t x, int32_t quant_mul
 	return RoundingDivideByPOT(SaturatingRoundingDoublingHighMul(x, quant_mul), right_shift);
 }
 
-int32_t MAC(int32_t acc, int32_t x, int32_t y) { // 00000ccc
-	return acc + (x * y);
-}
-
 void Conv(uint8_t output_conv_arr[IMG_SIZE][N_FILTERS]) {
 	int rows = N_FILTERS;
 	int cols = IMG_SIZE;
@@ -83,9 +79,9 @@ void Conv(uint8_t output_conv_arr[IMG_SIZE][N_FILTERS]) {
 		for (int j = 0; j < cols; j++) {
 			if ((j + 1 <= cols - 1) & (j > 0)) {
 				for (int k = 0; k < KERNEL; k++) {
-					input_val = (int32_t)(img[0][j - 1 + k][0]) - input_offset_conv;
-					weight_val = (int32_t)(quantized_weight_conv[0][0][k][i]) - weight_offset_conv;
-					acc = MAC(acc, input_val, weight_val);
+					input_val = (int32_t)(img[0][j - 1 + k][0]);
+					weight_val = (int32_t)(quantized_weight_conv[0][0][k][i]);
+					acc += (input_val - input_offset_conv) * (weight_val - weight_offset_conv);
 				}
 			}
 			acc += quantized_bias_conv[i];
@@ -108,10 +104,9 @@ void FullyConnectedDense(uint8_t quantized_inputs[1][IMG_SIZE*N_FILTERS], uint8_
 	for (int i = 0; i < rows; i++) {
 		acc = 0;
 		for (int j = 0; j < cols; j++) {
-			// TO DO: Replace this section with inline assembly
-			input_val = (int32_t)(quantized_inputs[0][j]) - input_offset_dense;
-			weight_val = (int32_t)(quantized_weight_dense[i][j]) - weight_offset_dense;
-			acc = MAC(acc, input_val, weight_val);
+			input_val = (int32_t)(quantized_inputs[0][j]);
+			weight_val = (int32_t)(quantized_weight_dense[i][j]);
+			acc += (input_val - input_offset_dense) * (weight_val - weight_offset_dense);
 		}
 		acc += quantized_bias_dense[i];
 		acc = MultiplyByQuantizedMultiplierSmallerThanOne(acc, M_0_dense, right_shift_dense);
@@ -135,30 +130,16 @@ uint8_t argMaxPred(uint8_t quantized_input[1][N_CLASSES]) {
 	return argMaxIndex;
 }
 
-int main (void) {	
+int main (void) {
 	uint8_t output_conv[IMG_SIZE][N_FILTERS];
 	uint8_t output_dense[1][N_CLASSES];
-	uint8_t final_pred = 0;
-	uint8_t mismatch = 0;
+	uint8_t final_pred;
 	
 	Conv(output_conv);
 	FullyConnectedDense(output_conv, output_dense);
-	final_pred = argMaxPred(output_dense);
-
+	
 	for (int i = 0; i < N_CLASSES; i++) {
-		if (dense_correct[i] != output_dense[0][i]) {
-			mismatch = 1;
-		}
+		printf("(%d, %d)\n", i, output_dense[0][i]);
 	}
-
-	if (final_pred != lbl) {
-		mismatch = 1;
-	}
-
-	if (mismatch) {
-		TEST_FINISH_FAIL(1)
-	}
-
-	TEST_FINISH_SUCCESS
 	return 0;
 }

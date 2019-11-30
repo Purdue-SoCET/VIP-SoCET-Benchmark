@@ -27,6 +27,4 @@ const int right_shift_dense = 7;
 
 const int32_t M_0_dense = 28386;
 
-const uint8_t dense_correct[10] = { 153, 112, 155, 171, 167, 169, 135, 206, 158, 190 };
-
 #endif
