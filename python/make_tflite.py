@@ -11,7 +11,7 @@ import numpy as np
 import offline
 from PIL import Image
 
-IMG_SIZE = (14, 14)
+IMG_SIZE = (10, 10)
 
 mnist = keras.datasets.mnist
 (train_images, train_labels), (test_images, test_labels) = mnist.load_data()
@@ -51,7 +51,7 @@ def build_keras_model():
     return keras.Sequential([
         keras.layers.Conv1D(filters=8, kernel_size=3, input_shape=(IMG_SIZE[0] * IMG_SIZE[1], 1), padding='same', activation='relu'),
         keras.layers.Flatten(),
-        keras.layers.Dense(16, activation='relu'),
+        # keras.layers.Dense(16, activation='relu'),
         keras.layers.Dense(10, activation='softmax')
     ])
 
@@ -77,7 +77,7 @@ with train_graph.as_default():
         loss='sparse_categorical_crossentropy',
         metrics=['accuracy']
     )
-    train_model.fit(flat_train, train_labels, epochs=1)
+    train_model.fit(flat_train, train_labels, epochs=20)
     train_model.summary()
     # save graph and checkpoints
     saver = tf.train.Saver()
